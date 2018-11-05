@@ -6,40 +6,44 @@
 #include <SPI.h>
 #include <Ethernet.h>
 #include <PubSubClient.h>
-
-#include "tbh.h"
+#include <PID_v1.h>
 
 const int minX = 65;
 const int maxX = 344;
 const int maxPWM = 255;
 const float maxTargetTemp = 100;
 const float minTargetTemp = 0;
-const float noControlledTemp = -1000;
+const int publishInterval = 0; // set to e.g. 3000 to reduce publish rate
 
 // good/possible good for tank->house outflow stabilization:
 // static constexpr double defaultTargetTemp = 25;
 // static constexpr double defaultKp = 0.07;// good: 0.001; then: 0.02; 0.05 better; 0.08 even better
 // static constexpr double defaultKi = 0.0004;// ~good: 0.0003;
 
-static constexpr double defaultTargetTemp = 24;
-static constexpr double defaultKp = 0.07;
-static constexpr double defaultKi = 0.0001; // acceptable: 6
+static constexpr double defaultTargetTemp = 36;
+static constexpr double defaultKp = 37;
+static constexpr double defaultKi = 1.5; // acceptable: 2.5; 2
+static constexpr double defaultKd = 0;
+unsigned long lastPublished = 0;
 
-static int defaultTbhInterval = 1000;
+// static int defaultTbhInterval = 1000;
 
-TBH tbh(defaultTargetTemp, defaultKp, defaultKi, defaultTbhInterval);
-
-float targetTemp = defaultTargetTemp;
-bool controlTemp = true;
+double targetTemp = defaultTargetTemp;
 
 const int maxNTemps = 16;
 struct tempItem {
     DeviceAddress addr;
     float t;
     const char* name;
+    bool controlled;
 };
 tempItem tempItems[maxNTemps];
-int curNTemps = 0, curX = 0, curY = 0;
+int tempCount = 0, curX = 0;
+bool scanned = false;
+
+double controlledTemp = 0, curY = 0;
+// TBH tbh(defaultTargetTemp, defaultKp, defaultKi, defaultTbhInterval);
+PID valvePID(&controlledTemp, &curY, &targetTemp, defaultKp, defaultKi, defaultKd, P_ON_E, DIRECT);
 
 byte mac[] = {
     0xDE, 0xAD, 0xBE, 0x12, 0x33, 0x55
@@ -78,8 +82,8 @@ struct addrDesc addrDescs[] = {
     { { 0x28, 0x0e, 0x2a, 0x71, 0x07, 0x00, 0x00, 0x15 }, "temp-board", false},
     { { 0x28, 0xff, 0xb6, 0xd6, 0x22, 0x17, 0x04, 0xab }, "temp-boiler-to-tank", false},
     { { 0x28, 0xff, 0x62, 0xf5, 0x22, 0x17, 0x04, 0x12 }, "temp-tank-to-boiler", false},
-    { { 0x28, 0xff, 0x0e, 0xdb, 0x22, 0x17, 0x04, 0x47 }, "temp-tank-to-house", false}, // was: true
-    { { 0x28, 0xff, 0x80, 0x08, 0x23, 0x17, 0x04, 0x0c }, "temp-house-to-tank", true}, // was: false
+    { { 0x28, 0xff, 0x0e, 0xdb, 0x22, 0x17, 0x04, 0x47 }, "temp-tank-to-house", true},
+    { { 0x28, 0xff, 0x80, 0x08, 0x23, 0x17, 0x04, 0x0c }, "temp-house-to-tank", false},
     { { 0x28, 0xff, 0xc0, 0x62, 0xa6, 0x16, 0x03, 0x7e }, "temp-tank-a", false},
     { { 0x28, 0xff, 0x6b, 0xa0, 0x24, 0x17, 0x03, 0xea }, "temp-tank-b", false},
     { { 0x28, 0xff, 0xaf, 0x3e, 0x81, 0x14, 0x02, 0xeb }, "temp-tank-c", false},
@@ -110,43 +114,43 @@ void publishFloat(const char* name, double v) {
 void publishCur() {
     publishFloat("valveY", curY * 100.0 / maxPWM);
     publishFloat("targetTemp", targetTemp);
-    publishFloat("ki", tbh.ki() * 1000);
-    publishFloat("kp", tbh.kp() * 1000);
-    publishFloat("interval", tbh.interval());
+    publishFloat("ki", valvePID.GetKi());
+    publishFloat("kp", valvePID.GetKp());
+    publishFloat("kd", valvePID.GetKd());
 }
 
 void setTargetTemp(double v) {
-    controlTemp = true;
+    valvePID.SetMode(AUTOMATIC);
     targetTemp = v;
     if (targetTemp > maxTargetTemp)
         targetTemp = maxTargetTemp;
     else if (targetTemp < minTargetTemp)
         targetTemp = minTargetTemp;
-    tbh.setTarget(targetTemp);
 }
 
 void setCurY(double v) {
-    controlTemp = false;
+    valvePID.SetMode(MANUAL);
     curY = v * maxPWM / 100.;
     if (curY < 0)
         curY = 0;
     else if (curY > maxPWM)
         curY = maxPWM;
-}
-
-void setKi(double v) {
-    controlTemp = true;
-    tbh.setKi(v / 1000);
+    analogWrite(PWM_PIN, curY);
 }
 
 void setKp(double v) {
-    controlTemp = true;
-    tbh.setKp(v / 1000);
+    valvePID.SetMode(AUTOMATIC);
+    valvePID.SetTunings(v, valvePID.GetKi(), valvePID.GetKd());
 }
 
-void setInterval(double v) {
-    controlTemp = true;
-    tbh.setInterval((unsigned long)v);
+void setKi(double v) {
+    valvePID.SetMode(AUTOMATIC);
+    valvePID.SetTunings(valvePID.GetKp(), v, valvePID.GetKd());
+}
+
+void setKd(double v) {
+    valvePID.SetMode(AUTOMATIC);
+    valvePID.SetTunings(valvePID.GetKp(), valvePID.GetKi(), v);
 }
 
 typedef void (*SetValueFunc)(double);
@@ -161,7 +165,7 @@ TopicItem topicItems[] = {
     { "/devices/boiler/controls/valveY/on", setCurY },
     { "/devices/boiler/controls/ki/on", setKi },
     { "/devices/boiler/controls/kp/on", setKp },
-    { "/devices/boiler/controls/interval/on", setInterval },
+    { "/devices/boiler/controls/kd/on", setKd },
     { 0, 0 },
 };
 
@@ -194,7 +198,9 @@ void callback(char* topic, byte* payload, unsigned int length) {
 }
 
 void setup(void) 
-{ 
+{
+    valvePID.SetSampleTime(1000);
+    valvePID.SetMode(AUTOMATIC);
     // pinMode(CONTROLLINO_RTC_CHIP_SELECT, OUTPUT);
     // pinMode(CONTROLLINO_ETHERNET_CHIP_SELECT, OUTPUT);
     
@@ -253,18 +259,56 @@ enum reqState {
     ReqDone
 };
 
+void scanSensors()
+{
+    int count = sensors.getDeviceCount();
+    if (count > maxNTemps)
+        count = maxNTemps;
+    int n = 0;
+    for (int i = 0; i < count; i++) {
+        ///Serial.print(i);
+        ///Serial.print(": t = "); 
+        if (!sensors.getAddress(tempItems[n].addr, i)) {
+            Serial.print("WARNING: couldn't get address for index ");
+            Serial.println(i);
+        }
+        tempItems[n].name = getSensorName(tempItems[n].addr, &tempItems[n].controlled);
+        char addrStr[64];
+        DeviceAddress& addr = tempItems[n].addr;
+        snprintf(addrStr, 64, "%02x%02x%02x%02x%02x%02x%02x%02x",
+                 addr[0], addr[1], addr[2], addr[3],
+                 addr[4], addr[5], addr[6], addr[7]);
+        if (tempItems[n].name) {
+            Serial.print("Found sensor: ");
+            Serial.print(tempItems[n].name);
+            Serial.print(" at ");
+            Serial.println(addrStr);
+            n++;
+        } else {
+            Serial.print("Unrecognized sensor: ");
+            Serial.println(addrStr);
+        }
+    }
+    tempCount = n;
+    Serial.print("Got ");
+    Serial.print(tempCount);
+    Serial.println(" sensors.");
+    scanned = tempCount > 0;
+}
+
 void loop(void) 
 {
     client.loop();
 
+    bool shouldPublish = false;
+    unsigned long curTime = millis();
+    if (curTime - lastPublished >= publishInterval) {
+        lastPublished = curTime;
+        shouldPublish = true;
+    }
+
     // handleEthernet();
     ///Serial.print("x: ");
-    curX = analogRead(X_PIN);
-    float x = (curX - minX) * 100.0 / (maxX - minX);
-    x = max(0, min(x, 100));
-    publishFloat("valveX", x);
-    publishCur();
-
     ///Serial.println(curX);
     // call sensors.requestTemperatures() to issue a global temperature 
     // request to all devices on the bus 
@@ -273,67 +317,74 @@ void loop(void)
     sensors.requestTemperatures(); // Send the command to get temperature readings 
     // Serial.println("DONE"); 
     /********************************************************************/
-    int count = sensors.getDeviceCount();
-    if (count > maxNTemps)
-        count = maxNTemps;
-    curNTemps = count;
+    if (!scanned) {
+        scanSensors();
+        return;
+    }
+
     float maxT = 0;
-    float controlledTemp = noControlledTemp;
-    for (int i = 0; i < count; i++) {
+    bool foundControlledTemp = false;
+    for (int i = 0; i < tempCount; i++) {
+        if (!shouldPublish && !tempItems[i].controlled)
+            continue;
+
         ///Serial.print(i);
         ///Serial.print(": t = "); 
-        sensors.getAddress(tempItems[i].addr, i);
-        DeviceAddress& addr = tempItems[i].addr;
+        // DeviceAddress& addr = tempItems[i].addr;
         float t = sensors.getTempC(tempItems[i].addr);
-        // if (t == DEVICE_DISCONNECTED_C) {
-        //     // ...
-        //     continue;
-        // }
+        if (t == DEVICE_DISCONNECTED_C) {
+            Serial.print("WARNING: sensor disconnected: ");
+            Serial.println(tempItems[i].name);
+            tempItems[i].t = t;
+            continue;
+        }
         if (t > maxT)
             maxT = t;
-        ///Serial.println(t);
         tempItems[i].t = t;
+        ///Serial.println(t);
 
-        bool controlled;
-        tempItems[i].name = getSensorName(tempItems[i].addr, &controlled);
-        if (!tempItems[i].name) {
-            char addrStr[64];
-            DeviceAddress& addr = tempItems[i].addr;
-            snprintf(addrStr, 64, "Unrecognized address: %02x%02x%02x%02x%02x%02x%02x%02x",
-                     addr[0], addr[1], addr[2], addr[3],
-                     addr[4], addr[5], addr[6], addr[7]);
-            Serial.println(addrStr);
-        } else if (controlled)
+        if (tempItems[i].controlled) {
             controlledTemp = t;
-
-        char addrStr[64];
-        snprintf(addrStr, 64, "Got addr: %02x%02x%02x%02x%02x%02x%02x%02x; name = %s; temp = ",
-                 addr[0], addr[1], addr[2], addr[3],
-                 addr[4], addr[5], addr[6], addr[7],
-                 tempItems[i].name ? tempItems[i].name : "<none>");
-        Serial.print(addrStr);
-        Serial.println(t);
-
-    }
-
-    if (controlledTemp == noControlledTemp)
-        Serial.println("WARNING: couldn't read the controlled temp");
-    else {
-        if (controlTemp && tbh.handle(controlledTemp, millis())) {
-            curY = tbh.output() * maxPWM;
-            if (curY < 0)
-                curY = 0;
-            else if (curY > maxPWM)
-                curY = maxPWM;
+            foundControlledTemp = true;
         }
-        analogWrite(PWM_PIN, curY);
-        publishCur();
+
+        // char addrStr[64];
+        // snprintf(addrStr, 64, "Got addr: %02x%02x%02x%02x%02x%02x%02x%02x; name = %s; temp = ",
+        //          addr[0], addr[1], addr[2], addr[3],
+        //          addr[4], addr[5], addr[6], addr[7],
+        //          tempItems[i].name ? tempItems[i].name : "<none>");
+        // Serial.print(addrStr);
+        // Serial.println(t);
+
     }
 
-    for (int i = 0; i < count; i++) {
-        if (!tempItems[i].name || tempItems[i].t == DEVICE_DISCONNECTED_C)
-            continue;
-        publishFloat(tempItems[i].name, tempItems[i].t);
+    Serial.print("Measured=");
+    Serial.print(controlledTemp);
+    Serial.print("; setpoint=");
+    Serial.println(targetTemp);
+ 
+    if (!foundControlledTemp)
+        Serial.println("WARNING: couldn't read the controlled temp");
+    else if (valvePID.Compute()) {
+        Serial.print("Applying PID output=");
+        Serial.println(curY);
+        analogWrite(PWM_PIN, curY);
+        if (shouldPublish)
+            publishCur();
+        else
+            publishFloat("valveY", curY * 100.0 / maxPWM);
+    }
+    if (shouldPublish) {
+        curX = analogRead(X_PIN);
+        float x = (curX - minX) * 100.0 / (maxX - minX);
+        x = max(0, min(x, 100));
+        publishFloat("valveX", x);
+
+        for (int i = 0; i < tempCount; i++) {
+            if (!tempItems[i].name || tempItems[i].t == DEVICE_DISCONNECTED_C)
+                continue;
+            publishFloat(tempItems[i].name, tempItems[i].t);
+        }
     }
 } 
 
