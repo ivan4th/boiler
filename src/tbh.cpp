@@ -7,7 +7,7 @@ TBH::TBH(double setPoint, double kp, double ki, unsigned long interval):
 
 bool TBH::handle(double input, unsigned long t)
 {
-    if (t < _nextUpdate)
+    if (!_autoMode || t < _nextUpdate)
         return false;
     double err = _setPoint - input;
     double fScaled = _ki * double(t - _nextUpdate + _interval) / _interval;

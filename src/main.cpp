@@ -6,7 +6,7 @@
 #include <SPI.h>
 #include <Ethernet.h>
 #include <PubSubClient.h>
-#include <PID_v1.h>
+#include "tbh.h"
 
 const int minX = 65;
 const int maxX = 344;
@@ -14,19 +14,19 @@ const int maxPWM = 255;
 const float maxTargetTemp = 100;
 const float minTargetTemp = 0;
 const int publishInterval = 0; // set to e.g. 3000 to reduce publish rate
+const int nAvg = 20;
 
 // good/possible good for tank->house outflow stabilization:
 // static constexpr double defaultTargetTemp = 25;
 // static constexpr double defaultKp = 0.07;// good: 0.001; then: 0.02; 0.05 better; 0.08 even better
 // static constexpr double defaultKi = 0.0004;// ~good: 0.0003;
 
-static constexpr double defaultTargetTemp = 36;
-static constexpr double defaultKp = 37;
-static constexpr double defaultKi = 1.5; // acceptable: 2.5; 2
-static constexpr double defaultKd = 0;
+static constexpr double defaultTargetTemp = 15;
+static constexpr double defaultKp = 0.07;
+static constexpr double defaultKi = 0.005;
 unsigned long lastPublished = 0;
 
-// static int defaultTbhInterval = 1000;
+static int defaultTbhInterval = 1000;
 
 double targetTemp = defaultTargetTemp;
 
@@ -41,9 +41,10 @@ tempItem tempItems[maxNTemps];
 int tempCount = 0, curX = 0;
 bool scanned = false;
 
-double controlledTemp = 0, curY = 0;
-// TBH tbh(defaultTargetTemp, defaultKp, defaultKi, defaultTbhInterval);
-PID valvePID(&controlledTemp, &curY, &targetTemp, defaultKp, defaultKi, defaultKd, P_ON_E, DIRECT);
+int nTempsToAvg = 0, tempAvgIndex = 0;
+double tempsToAvg[nAvg];
+double tempSum = 0, curY = 0;
+TBH tbh(defaultTargetTemp, defaultKp, defaultKi, defaultTbhInterval);
 
 byte mac[] = {
     0xDE, 0xAD, 0xBE, 0x12, 0x33, 0x55
@@ -114,22 +115,22 @@ void publishFloat(const char* name, double v) {
 void publishCur() {
     publishFloat("valveY", curY * 100.0 / maxPWM);
     publishFloat("targetTemp", targetTemp);
-    publishFloat("ki", valvePID.GetKi());
-    publishFloat("kp", valvePID.GetKp());
-    publishFloat("kd", valvePID.GetKd());
+    publishFloat("ki", tbh.ki() * 1000);
+    publishFloat("kp", tbh.kp() * 1000);
 }
 
 void setTargetTemp(double v) {
-    valvePID.SetMode(AUTOMATIC);
+    tbh.setAutoMode(true);
     targetTemp = v;
     if (targetTemp > maxTargetTemp)
         targetTemp = maxTargetTemp;
     else if (targetTemp < minTargetTemp)
         targetTemp = minTargetTemp;
+    tbh.setTarget(targetTemp);
 }
 
 void setCurY(double v) {
-    valvePID.SetMode(MANUAL);
+    tbh.setAutoMode(false);
     curY = v * maxPWM / 100.;
     if (curY < 0)
         curY = 0;
@@ -139,18 +140,13 @@ void setCurY(double v) {
 }
 
 void setKp(double v) {
-    valvePID.SetMode(AUTOMATIC);
-    valvePID.SetTunings(v, valvePID.GetKi(), valvePID.GetKd());
+    tbh.setAutoMode(true);
+    tbh.setKp(v / 1000);
 }
 
 void setKi(double v) {
-    valvePID.SetMode(AUTOMATIC);
-    valvePID.SetTunings(valvePID.GetKp(), v, valvePID.GetKd());
-}
-
-void setKd(double v) {
-    valvePID.SetMode(AUTOMATIC);
-    valvePID.SetTunings(valvePID.GetKp(), valvePID.GetKi(), v);
+    tbh.setAutoMode(true);
+    tbh.setKi(v / 1000);
 }
 
 typedef void (*SetValueFunc)(double);
@@ -165,7 +161,6 @@ TopicItem topicItems[] = {
     { "/devices/boiler/controls/valveY/on", setCurY },
     { "/devices/boiler/controls/ki/on", setKi },
     { "/devices/boiler/controls/kp/on", setKp },
-    { "/devices/boiler/controls/kd/on", setKd },
     { 0, 0 },
 };
 
@@ -199,8 +194,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
 void setup(void) 
 {
-    valvePID.SetSampleTime(1000);
-    valvePID.SetMode(AUTOMATIC);
     // pinMode(CONTROLLINO_RTC_CHIP_SELECT, OUTPUT);
     // pinMode(CONTROLLINO_ETHERNET_CHIP_SELECT, OUTPUT);
     
@@ -323,7 +316,7 @@ void loop(void)
     }
 
     float maxT = 0;
-    bool foundControlledTemp = false;
+    int controlledTempIndex;
     for (int i = 0; i < tempCount; i++) {
         if (!shouldPublish && !tempItems[i].controlled)
             continue;
@@ -343,10 +336,8 @@ void loop(void)
         tempItems[i].t = t;
         ///Serial.println(t);
 
-        if (tempItems[i].controlled) {
-            controlledTemp = t;
-            foundControlledTemp = true;
-        }
+        if (tempItems[i].controlled)
+            controlledTempIndex = i;
 
         // char addrStr[64];
         // snprintf(addrStr, 64, "Got addr: %02x%02x%02x%02x%02x%02x%02x%02x; name = %s; temp = ",
@@ -358,21 +349,40 @@ void loop(void)
 
     }
 
-    Serial.print("Measured=");
-    Serial.print(controlledTemp);
-    Serial.print("; setpoint=");
-    Serial.println(targetTemp);
- 
-    if (!foundControlledTemp)
+    if (controlledTempIndex < 0) {
         Serial.println("WARNING: couldn't read the controlled temp");
-    else if (valvePID.Compute()) {
-        Serial.print("Applying PID output=");
-        Serial.println(curY);
-        analogWrite(PWM_PIN, curY);
-        if (shouldPublish)
-            publishCur();
+    } else {
+        double curTemp = tempItems[controlledTempIndex].t;
+        tempSum += curTemp;
+        if (nTempsToAvg == nAvg)
+            tempSum -= tempsToAvg[tempAvgIndex];
         else
-            publishFloat("valveY", curY * 100.0 / maxPWM);
+            nTempsToAvg++;
+        tempsToAvg[tempAvgIndex++] = curTemp;
+        if (tempAvgIndex == nAvg)
+            tempAvgIndex = 0;
+        double avgTemp = tempSum / nTempsToAvg;
+        tempItems[controlledTempIndex].t = avgTemp; // publish averaged temp
+
+        Serial.print("Measured=");
+        Serial.print(curTemp);
+        Serial.print("; avg=");
+        Serial.print(avgTemp);
+        Serial.print("; setpoint=");
+        Serial.println(targetTemp);
+ 
+        if (tbh.handle(avgTemp, millis())) {
+            curY = tbh.output() * maxPWM;
+            if (curY < 0)
+                curY = 0;
+            else if (curY > maxPWM)
+                curY = maxPWM;
+            analogWrite(PWM_PIN, curY);
+            if (shouldPublish)
+                publishCur();
+            else
+                publishFloat("valveY", curY * 100.0 / maxPWM);
+        }
     }
     if (shouldPublish) {
         curX = analogRead(X_PIN);

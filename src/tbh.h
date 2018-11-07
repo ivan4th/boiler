@@ -5,6 +5,8 @@
 class TBH {
 public:
     TBH(double target, double kp, double ki, unsigned long interval);
+    void setAutoMode(bool autoMode) { _autoMode = autoMode; }
+    bool autoMode() const { return _autoMode; }
     void setTarget(double target) { _setPoint = target; }
     void setKp(double kp) { _kp = kp; }
     void setKi(double ki) { _ki = ki; }
@@ -15,6 +17,7 @@ public:
     double ki() const { return _ki; }
     unsigned long interval() const { return _interval; }
 private:
+    bool _autoMode = true;
     double _setPoint;
     double _kp;
     double _ki;
