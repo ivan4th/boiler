@@ -15,6 +15,7 @@ const float maxTargetTemp = 100;
 const float minTargetTemp = 0;
 const int publishInterval = 0; // set to e.g. 3000 to reduce publish rate
 const int nAvg = 50; // was: 20
+const int nPressureAvg = 50;
 
 // good/possible good for tank->house outflow stabilization:
 // static constexpr double defaultTargetTemp = 25;
@@ -24,6 +25,8 @@ const int nAvg = 50; // was: 20
 static constexpr double defaultTargetTemp = 30;
 static constexpr double defaultKp = 0.08; // TO SET: 0.640; was: 0.07; also trying: 0
 static constexpr double defaultKi = 0.0003; // TO SET: 0.008 (also try 0.016); 0.005 - oscillates at 15c; was trying: 0.003; 0.0015; trying: 0.0005
+static constexpr double pressureCoefA = 0.023031193008219;
+static constexpr double pressureCoefB = -2.2042703867744 - 0.04;
 unsigned long lastPublished = 0;
 
 static int defaultTbhInterval = 1000;
@@ -46,6 +49,10 @@ double tempsToAvg[nAvg];
 double tempSum = 0, curY = 0;
 TBH tbh(defaultTargetTemp, defaultKp, defaultKi, defaultTbhInterval);
 
+int nPToAvg = 0, pAvgIndex = 0;
+double pToAvg[nPressureAvg];
+double pSum = 0;
+
 byte mac[] = {
     0xDE, 0xAD, 0xBE, 0x12, 0x33, 0x55
 };
@@ -62,6 +69,7 @@ PubSubClient client(brokerIP, 1883, callback, ethClient);
 /********************************************************************/
 #define PWM_PIN CONTROLLINO_D0
 #define X_PIN CONTROLLINO_A3
+#define PRESSURE_PIN CONTROLLINO_A1
 // Data wire is plugged into pin 2 on the Arduino 
 #define ONE_WIRE_BUS 20 // CONTROLLINO_PIN_HEADER_SDA
 /********************************************************************/
@@ -210,6 +218,7 @@ void setup(void)
     sensors.begin();
     pinMode(PWM_PIN, OUTPUT);
     pinMode(X_PIN, INPUT);
+    pinMode(PRESSURE_PIN, INPUT);
     //Ethernet.begin(mac, ip);
     if (!Ethernet.begin(mac))
         Serial.println("ethernet fail...");
@@ -389,6 +398,20 @@ void loop(void)
         float x = (curX - minX) * 100.0 / (maxX - minX);
         x = max(0, min(x, 100));
         publishFloat("valveX", x);
+
+        double p = analogRead(PRESSURE_PIN);
+        publishFloat("pressureRaw", p);
+        double curP = pressureCoefA * p + pressureCoefB;
+        pSum += curP;
+        if (nPToAvg == nPressureAvg)
+            pSum -= pToAvg[pAvgIndex];
+        else
+            nPToAvg++;
+        pToAvg[pAvgIndex++] = curP;
+        if (pAvgIndex == nPressureAvg)
+            pAvgIndex = 0;
+        double avgP = pSum / nPToAvg;
+        publishFloat("pressure", avgP);
 
         for (int i = 0; i < tempCount; i++) {
             if (!tempItems[i].name || tempItems[i].t == DEVICE_DISCONNECTED_C)
