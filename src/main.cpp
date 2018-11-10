@@ -108,7 +108,7 @@ void publishFloat(const char* name, double v) {
     char topic[128];
     snprintf(topic, 128, "/devices/boiler/controls/%s", name);
     char valueStr[64];
-    dtostrf(v, 1, 2, valueStr);
+    dtostrf(v, 1, 4, valueStr);
     client.publish(topic, valueStr);
 }
 
