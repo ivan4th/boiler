@@ -14,16 +14,16 @@ const int maxPWM = 255;
 const float maxTargetTemp = 100;
 const float minTargetTemp = 0;
 const int publishInterval = 0; // set to e.g. 3000 to reduce publish rate
-const int nAvg = 20;
+const int nAvg = 50; // was: 20
 
 // good/possible good for tank->house outflow stabilization:
 // static constexpr double defaultTargetTemp = 25;
 // static constexpr double defaultKp = 0.07;// good: 0.001; then: 0.02; 0.05 better; 0.08 even better
 // static constexpr double defaultKi = 0.0004;// ~good: 0.0003;
 
-static constexpr double defaultTargetTemp = 15;
-static constexpr double defaultKp = 0.07;
-static constexpr double defaultKi = 0.005;
+static constexpr double defaultTargetTemp = 30;
+static constexpr double defaultKp = 0.08; // TO SET: 0.640; was: 0.07; also trying: 0
+static constexpr double defaultKi = 0.0003; // TO SET: 0.008 (also try 0.016); 0.005 - oscillates at 15c; was trying: 0.003; 0.0015; trying: 0.0005
 unsigned long lastPublished = 0;
 
 static int defaultTbhInterval = 1000;
