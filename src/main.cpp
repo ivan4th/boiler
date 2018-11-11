@@ -7,6 +7,7 @@
 #include <Ethernet.h>
 #include <PubSubClient.h>
 #include "tbh.h"
+#include "average.h"
 
 const int minX = 65;
 const int maxX = 344;
@@ -14,8 +15,9 @@ const int maxPWM = 255;
 const float maxTargetTemp = 100;
 const float minTargetTemp = 0;
 const int publishInterval = 0; // set to e.g. 3000 to reduce publish rate
-const int nAvg = 50; // was: 20
+const int nTempAvg = 50; // was: 20
 const int nPressureAvg = 50;
+const int mqttReconnectInterval = 5000;
 
 // good/possible good for tank->house outflow stabilization:
 // static constexpr double defaultTargetTemp = 25;
@@ -32,6 +34,7 @@ unsigned long lastPublished = 0;
 static int defaultTbhInterval = 1000;
 
 double targetTemp = defaultTargetTemp;
+double curY = 0;
 
 const int maxNTemps = 16;
 struct tempItem {
@@ -44,14 +47,9 @@ tempItem tempItems[maxNTemps];
 int tempCount = 0, curX = 0;
 bool scanned = false;
 
-int nTempsToAvg = 0, tempAvgIndex = 0;
-double tempsToAvg[nAvg];
-double tempSum = 0, curY = 0;
+Average tempAvg(nTempAvg);
+Average pAvg(nPressureAvg);
 TBH tbh(defaultTargetTemp, defaultKp, defaultKi, defaultTbhInterval);
-
-int nPToAvg = 0, pAvgIndex = 0;
-double pToAvg[nPressureAvg];
-double pSum = 0;
 
 byte mac[] = {
     0xDE, 0xAD, 0xBE, 0x12, 0x33, 0x55
@@ -113,6 +111,8 @@ const char* getSensorName(uint8_t* addr, bool* controlled) {
 
 
 void publishFloat(const char* name, double v) {
+    if (!client.connected())
+        return;
     char topic[128];
     snprintf(topic, 128, "/devices/boiler/controls/%s", name);
     char valueStr[64];
@@ -200,6 +200,18 @@ void callback(char* topic, byte* payload, unsigned int length) {
     free(buf);
 }
 
+long lastReconnectAttempt = 0;
+
+bool reconnect()
+{
+    if (client.connect("arduinoClient")) {
+        client.publish("/devices/boiler/msg", "online");
+        for (TopicItem* item = topicItems; item->topic; item++)
+            client.subscribe(item->topic);
+    }
+    return client.connected();
+}
+
 void setup(void) 
 {
     // pinMode(CONTROLLINO_RTC_CHIP_SELECT, OUTPUT);
@@ -245,21 +257,9 @@ void setup(void)
 
     
     Ethernet.begin(mac);
-    if (client.connect("arduinoClient")) {
-        client.publish("/devices/boiler/msg", "booted");
-        // client.subscribe("/devices/boiler/controls/valveY/on");
-        for (TopicItem* item = topicItems; item->topic; item++)
-            client.subscribe(item->topic);
-    }
+    delay(1500);
+    lastReconnectAttempt = 0;
 }
-
-enum reqState {
-    ReqStart,
-    ReqQuery,
-    ReqNewLine,
-    ReqNonblankLine,
-    ReqDone
-};
 
 void scanSensors()
 {
@@ -298,9 +298,24 @@ void scanSensors()
     scanned = tempCount > 0;
 }
 
+void mqttClientLoop()
+{
+    if (client.connected()) {
+        client.loop();
+        return;
+    }
+
+    long now = millis();
+    if (now - lastReconnectAttempt > mqttReconnectInterval) {
+        lastReconnectAttempt = now;
+        if (reconnect())
+            lastReconnectAttempt = 0;
+    }
+}
+
 void loop(void) 
 {
-    client.loop();
+    mqttClientLoop();
 
     bool shouldPublish = false;
     unsigned long curTime = millis();
@@ -324,7 +339,6 @@ void loop(void)
         return;
     }
 
-    float maxT = 0;
     int controlledTempIndex;
     for (int i = 0; i < tempCount; i++) {
         if (!shouldPublish && !tempItems[i].controlled)
@@ -340,8 +354,6 @@ void loop(void)
             tempItems[i].t = t;
             continue;
         }
-        if (t > maxT)
-            maxT = t;
         tempItems[i].t = t;
         ///Serial.println(t);
 
@@ -362,15 +374,8 @@ void loop(void)
         Serial.println("WARNING: couldn't read the controlled temp");
     } else {
         double curTemp = tempItems[controlledTempIndex].t;
-        tempSum += curTemp;
-        if (nTempsToAvg == nAvg)
-            tempSum -= tempsToAvg[tempAvgIndex];
-        else
-            nTempsToAvg++;
-        tempsToAvg[tempAvgIndex++] = curTemp;
-        if (tempAvgIndex == nAvg)
-            tempAvgIndex = 0;
-        double avgTemp = tempSum / nTempsToAvg;
+        tempAvg.add(curTemp);
+        double avgTemp = tempAvg.value();
         tempItems[controlledTempIndex].t = avgTemp; // publish averaged temp
 
         Serial.print("Measured=");
@@ -402,15 +407,8 @@ void loop(void)
         double p = analogRead(PRESSURE_PIN);
         publishFloat("pressureRaw", p);
         double curP = pressureCoefA * p + pressureCoefB;
-        pSum += curP;
-        if (nPToAvg == nPressureAvg)
-            pSum -= pToAvg[pAvgIndex];
-        else
-            nPToAvg++;
-        pToAvg[pAvgIndex++] = curP;
-        if (pAvgIndex == nPressureAvg)
-            pAvgIndex = 0;
-        double avgP = pSum / nPToAvg;
+        pAvg.add(curP);
+        double avgP = pAvg.value();
         publishFloat("pressure", avgP);
 
         for (int i = 0; i < tempCount; i++) {
@@ -423,3 +421,4 @@ void loop(void)
 
 // TODO: fix reading sensor data
 // TODO: reconnect
+// TODO: eeprom
