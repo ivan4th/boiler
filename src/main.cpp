@@ -24,11 +24,16 @@ const int mqttReconnectInterval = 5000;
 // static constexpr double defaultKp = 0.07;// good: 0.001; then: 0.02; 0.05 better; 0.08 even better
 // static constexpr double defaultKi = 0.0004;// ~good: 0.0003;
 
-static constexpr double defaultTargetTemp = 30;
+static constexpr double defaultTargetTemp = 15;
 static constexpr double defaultKp = 0.08; // TO SET: 0.640; was: 0.07; also trying: 0
-static constexpr double defaultKi = 0.0003; // TO SET: 0.008 (also try 0.016); 0.005 - oscillates at 15c; was trying: 0.003; 0.0015; trying: 0.0005
-static constexpr double pressureCoefA = 0.023031193008219;
-static constexpr double pressureCoefB = -2.2042703867744 - 0.04;
+static constexpr double defaultKi = 0; // 0.00015 ~ok; 0.008 (also try 0.016); 0.005 - oscillates at 15c; was trying: 0.003; 0.0015; trying: 0.0005
+// actually: use ki=0.00006 when *below* the target temp by < 2 degC; otherwise 0.001 or higher
+//static constexpr double pressureCoefA = 0.023031193008219;
+//static constexpr double pressureCoefB = -2.2042703867744 - 0.04 + 0.3 - 0.08;
+
+static constexpr double pressureCoefA = 0.01984801999082288;
+static constexpr double pressureCoefB = -1.4249809837242795;
+
 unsigned long lastPublished = 0;
 
 static int defaultTbhInterval = 1000;
