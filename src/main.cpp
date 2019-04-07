@@ -24,6 +24,8 @@ const int mqttReconnectInterval = 5000;
 // static constexpr double defaultKp = 0.07;// good: 0.001; then: 0.02; 0.05 better; 0.08 even better
 // static constexpr double defaultKi = 0.0004;// ~good: 0.0003;
 
+static constexpr double defaultFeedValveOpenPressure = 0.65;
+static constexpr double defaultFeedValveClosePressure = 0.85;
 static constexpr double defaultTargetTemp = 15;
 static constexpr double defaultKp = 0.08; // TO SET: 0.640; was: 0.07; also trying: 0
 static constexpr double defaultKi = 0; // 0.00015 ~ok; 0.008 (also try 0.016); 0.005 - oscillates at 15c; was trying: 0.003; 0.0015; trying: 0.0005
@@ -31,8 +33,34 @@ static constexpr double defaultKi = 0; // 0.00015 ~ok; 0.008 (also try 0.016); 0
 //static constexpr double pressureCoefA = 0.023031193008219;
 //static constexpr double pressureCoefB = -2.2042703867744 - 0.04 + 0.3 - 0.08;
 
-static constexpr double pressureCoefA = 0.01984801999082288;
-static constexpr double pressureCoefB = -1.4249809837242795;
+// static constexpr double pressureCoefA = 0.01984801999082288;
+// static constexpr double pressureCoefB = -1.4249809837242795;
+
+// static constexpr double pressureCoefA = 0.017142857142857144;
+// static constexpr double pressureCoefB = -0.4257142857142857;
+
+// Sensor range is 0..150 psi -> 0.5 .. 4.5V
+// 1psi = 0.0689476 bar
+// ADC range is 0..5V -> 0..1023
+// >>> 0.0689476*150*((146*5/1023.)-0.5)/4
+// 0.5522379252199414
+// extra +0.2 bar is correction
+// static constexpr double pressureCoefA = 0.0689476*150*5/(1023*4);
+// static constexpr double pressureCoefB = -0.0689476*150*0.5/4 + 0.2;
+
+// 0.75 -> 0.75
+// ~1.86 -> 2
+
+// 146 -> 0.75
+// 197 -> 1.5
+
+static constexpr double pressureCoefA = 0.014705882352941176;
+static constexpr double pressureCoefB = -1.3970588235294117;
+
+// 56=0.2
+// 77=0.65
+// 93=0.97
+
 
 unsigned long lastPublished = 0;
 
@@ -69,8 +97,16 @@ EthernetClient ethClient;
 // EthernetServer server(80);
 PubSubClient client(brokerIP, 1883, callback, ethClient);
 
+bool feedValveOpen = false;
+double feedValveOpenPressure = defaultFeedValveOpenPressure;
+double feedValveClosePressure = defaultFeedValveClosePressure;
+
+bool tankHeaterOn = false;
+
 /********************************************************************/
 #define PWM_PIN CONTROLLINO_D0
+#define TANK_HEATER_RELAY_PIN CONTROLLINO_R0
+#define INFLOW_VALVE_PIN CONTROLLINO_R10
 #define X_PIN CONTROLLINO_A3
 #define PRESSURE_PIN CONTROLLINO_A1
 // Data wire is plugged into pin 2 on the Arduino 
@@ -125,11 +161,22 @@ void publishFloat(const char* name, double v) {
     client.publish(topic, valueStr);
 }
 
+void publishBool(const char* name, bool v) {
+    if (!client.connected())
+        return;
+    char topic[128];
+    snprintf(topic, 128, "/devices/boiler/controls/%s", name);
+    client.publish(topic, v ? "1" : "0");
+}
+
 void publishCur() {
     publishFloat("valveY", curY * 100.0 / maxPWM);
     publishFloat("targetTemp", targetTemp);
     publishFloat("ki", tbh.ki() * 1000);
     publishFloat("kp", tbh.kp() * 1000);
+    publishFloat("feedValveOpenPressure", feedValveOpenPressure);
+    publishFloat("feedValveClosePressure", feedValveClosePressure);
+    publishBool("tankHeater", tankHeaterOn);
 }
 
 void setTargetTemp(double v) {
@@ -162,6 +209,20 @@ void setKi(double v) {
     tbh.setKi(v / 1000);
 }
 
+void setFeedValveOpenPressure(double v) {
+    feedValveOpenPressure = v;
+}
+
+void setFeedValveClosePressure(double v) {
+    feedValveClosePressure = v;
+}
+
+void setTankHeaterOn(double v) {
+    tankHeaterOn = v > 0;
+    pinMode(TANK_HEATER_RELAY_PIN, OUTPUT);
+    digitalWrite(TANK_HEATER_RELAY_PIN, tankHeaterOn ? HIGH : LOW);
+}
+
 typedef void (*SetValueFunc)(double);
 
 struct TopicItem {
@@ -174,6 +235,9 @@ TopicItem topicItems[] = {
     { "/devices/boiler/controls/valveY/on", setCurY },
     { "/devices/boiler/controls/ki/on", setKi },
     { "/devices/boiler/controls/kp/on", setKp },
+    { "/devices/boiler/controls/feedValveOpenPressure/on", setFeedValveOpenPressure },
+    { "/devices/boiler/controls/feedValveClosePressure/on", setFeedValveClosePressure },
+    { "/devices/boiler/controls/tankHeater/on", setTankHeaterOn },
     { 0, 0 },
 };
 
@@ -236,6 +300,10 @@ void setup(void)
     pinMode(PWM_PIN, OUTPUT);
     pinMode(X_PIN, INPUT);
     pinMode(PRESSURE_PIN, INPUT);
+    pinMode(INFLOW_VALVE_PIN, OUTPUT);
+    digitalWrite(INFLOW_VALVE_PIN, LOW);
+    pinMode(TANK_HEATER_RELAY_PIN, OUTPUT);
+    digitalWrite(TANK_HEATER_RELAY_PIN, LOW);
     //Ethernet.begin(mac, ip);
     if (!Ethernet.begin(mac))
         Serial.println("ethernet fail...");
@@ -318,11 +386,38 @@ void mqttClientLoop()
     }
 }
 
+void handlePressure(bool shouldPublish) {
+    double p = analogRead(PRESSURE_PIN);
+    double curP = pressureCoefA * p + pressureCoefB;
+    pAvg.add(curP);
+    double avgP = pAvg.value();
+
+    bool newFeedValveOpen = feedValveOpen;
+    if (avgP <= feedValveOpenPressure)
+        newFeedValveOpen = true;
+    else if (avgP >= feedValveClosePressure)
+        newFeedValveOpen = false;
+
+    if (newFeedValveOpen != feedValveOpen) {
+        Serial.print("!!! feed valve: ");
+        Serial.println(newFeedValveOpen ? "OPEN" : "CLOSED");
+        digitalWrite(INFLOW_VALVE_PIN, newFeedValveOpen ? HIGH : LOW);
+        shouldPublish = true;
+        feedValveOpen = newFeedValveOpen;
+    }
+
+    if (shouldPublish) {
+        publishFloat("pressureRaw", p);
+        publishBool("feedValveOpen", feedValveOpen);
+        publishFloat("pressure", avgP);
+    }
+}
+
 void loop(void) 
 {
     mqttClientLoop();
 
-    bool shouldPublish = false;
+    auto shouldPublish = false;
     unsigned long curTime = millis();
     if (curTime - lastPublished >= publishInterval) {
         lastPublished = curTime;
@@ -403,18 +498,12 @@ void loop(void)
                 publishFloat("valveY", curY * 100.0 / maxPWM);
         }
     }
+    handlePressure(shouldPublish);
     if (shouldPublish) {
         curX = analogRead(X_PIN);
         float x = (curX - minX) * 100.0 / (maxX - minX);
         x = max(0, min(x, 100));
         publishFloat("valveX", x);
-
-        double p = analogRead(PRESSURE_PIN);
-        publishFloat("pressureRaw", p);
-        double curP = pressureCoefA * p + pressureCoefB;
-        pAvg.add(curP);
-        double avgP = pAvg.value();
-        publishFloat("pressure", avgP);
 
         for (int i = 0; i < tempCount; i++) {
             if (!tempItems[i].name || tempItems[i].t == DEVICE_DISCONNECTED_C)
