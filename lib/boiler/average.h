@@ -1,10 +1,10 @@
 #ifndef __AVERAGE_H__
 #define __AVERAGE_H__
 
-class Average {
+class RunningAverage {
 public:
-    Average(int count);
-    ~Average();
+    RunningAverage(int count);
+    ~RunningAverage();
     void add(double v);
     double value() const;
 private:

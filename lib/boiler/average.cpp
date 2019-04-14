@@ -1,16 +1,16 @@
 #include "average.h"
 
-Average::Average(int count): total(count), n(0), p(0), sum(0)
+RunningAverage::RunningAverage(int count): total(count), n(0), p(0), sum(0)
 {
     items = new double[count];
 }
 
-Average::~Average()
+RunningAverage::~RunningAverage()
 {
     delete items;
 }
 
-void Average::add(double v)
+void RunningAverage::add(double v)
 {
     if (n == total)
         sum -= items[p];
@@ -22,7 +22,7 @@ void Average::add(double v)
     sum += v;
 }
 
-double Average::value() const
+double RunningAverage::value() const
 {
     return sum / n;
 }
