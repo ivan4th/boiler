@@ -1,0 +1,30 @@
+version: 2.1
+jobs:
+  build:
+    working_directory: ~/boiler
+    docker:
+      - image: circleci/python:2.7
+    steps:
+      - checkout
+      - run:
+          name: Prepare
+          command: |
+            sudo chown -R circleci:circleci /usr/local/bin
+            sudo chown -R circleci:circleci /usr/local/lib/python2.7/site-packages
+      - restore_cache:
+          key: deps1
+      - run:
+          name: Set up PlatformIO
+          command: |
+            pip install -U platformio
+            platformio update
+      - save_cache:
+          key: deps1
+          paths:
+            - "/usr/local/bin"
+            - "/usr/local/lib/python2.7/site-packages"
+      - run:
+          name: Test
+          command: |
+            platformio account login -u "${PIO_USERNAME}" -p "${PIO_PASSWORD}"
+            platformio test -e native -v

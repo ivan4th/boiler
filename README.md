@@ -1,4 +1,4 @@
-# Boiler control
+# Boiler control [![CircleCI](https://circleci.com/gh/ivan4th/boiler.svg?style=svg)](https://circleci.com/gh/ivan4th/boiler)
 
 This is my wood boiler control. It currently runs on
 [Controllino MEGA](https://www.controllino.biz/controllino-mega/).
