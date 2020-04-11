@@ -165,6 +165,24 @@ private:
     uint8_t _address[TempSensors::AddressSize];
 };
 
+class ThermocoupleBinding: public TypedCellBinding<double> {
+public:
+    ThermocoupleBinding(BoardIO *io, TypedCell<double>* cell, int nAvg = 1):
+        TypedCellBinding<double>(cell),
+        _io(io),
+        _avg(nAvg) {}
+    void setup() {}
+    void updateTargetFromCell() {}
+    void setTargetValue(double value) {}
+    double getTargetValue() {
+        _avg.add(_io->getThermocoupleValue());
+        return _avg.value();
+    }
+private:
+    BoardIO* _io;
+    RunningAverage _avg;
+};
+
 class CellBinder {
 public:
     CellBinder(BoardIO* io, unsigned long tempPollIntervalMs = 1000, unsigned long pollIntervalMs = 1000);
@@ -174,6 +192,7 @@ public:
     void addAnalogInputBinding(int pinId, TypedCell<double>* cell, const ValueTransform& transform = ValueTransform(), int nAvg = 1);
     void addAnalogOutputBinding(int pinId, TypedCell<double>* cell, const ValueTransform& transform = ValueTransform());
     void addTemperatureBinding(int pinId, TypedCell<double>* cell, uint8_t* address, int nAvg = 1);
+    void addThermocoupleBinding(TypedCell<double>* cell, int nAvg = 1);
     void setup();
     void updateCells();
 

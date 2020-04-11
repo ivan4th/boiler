@@ -15,7 +15,6 @@ namespace {
     // FIXME: adding bindings should not request temp sensors / map pins
     // Boiler boiler(&mqtt, &eeprom, &io);
     Boiler* boiler;
-
 };
 
 #ifdef __arm__

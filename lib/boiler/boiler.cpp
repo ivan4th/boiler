@@ -41,6 +41,7 @@ Boiler::Boiler(Mqtt* mqtt, Eeprom* eeprom, BoardIO *io):
     _pressure(_cellSet.addCell<double>("pressure")),
     _feedLowPressureThreshold(_cellSet.addCell<double>("feed-low-pressure-threshold")->setWritable()->setPersistent()),
     _feedHighPressureThreshold(_cellSet.addCell<double>("feed-high-pressure-threshold")->setWritable()->setPersistent()),
+    _burnerTemperature(_cellSet.addCell<double>("temp-burner")),
     _enableValveControl(_cellSet.addCell<bool>("enable-valve-control")->setWritable()->setPersistent()),
     // FIXME: "feed-valve-open"
     _feedValveOpen(_cellSet.addCell<bool>("feedValveOpen")->setWritable()),
@@ -66,6 +67,7 @@ void Boiler::setup()
     _binder.addTemperatureBinding(TemperaturePin, _tempTankA, tempTankAAddr, 50);
     _binder.addTemperatureBinding(TemperaturePin, _tempTankB, tempTankBAddr, 50);
     _binder.addTemperatureBinding(TemperaturePin, _tempTankC, tempTankCAddr, 50);
+    _binder.addThermocoupleBinding(_burnerTemperature, 30);
     _binder.addDigitalOutputBinding(FeedValvePin, _feedValveOpen);
     _binder.setup();
 }

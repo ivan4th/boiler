@@ -33,7 +33,8 @@ private:
         *_valveX, *_valveY, *_targetTemp, *_kp, *_ki, *_kd,
         *_pressure,
         *_feedLowPressureThreshold,
-        *_feedHighPressureThreshold;
+        *_feedHighPressureThreshold,
+        *_burnerTemperature;
     TypedCell<bool> *_enableValveControl, *_feedValveOpen, *_enableFeedValveControl;
     BoardIO* _io;
     CellPID* _pid;

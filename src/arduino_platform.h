@@ -6,6 +6,8 @@
 #include <PubSubClient.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+// TODO: REMOVE THIS!!!
+#include <Controllino.h>
 
 #include "interfaces.h"
 
@@ -55,6 +57,7 @@ public:
     int analogRead(int id);
     void analogWrite(int id, int value);
     TempSensors* getTempSensors(int id);
+    double getThermocoupleValue();
 private:
     static const int NumPins = 32;
     int _pinMappings[NumPins];

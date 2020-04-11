@@ -2,11 +2,19 @@
 #include <avr/io.h>
 #include <EEPROM.h>
 #include <ArduinoLog.h>
+#include <max6675.h>
+
 #include "arduino_platform.h"
 
 namespace {
     const unsigned int MaxPayloadLength = 32;
     const int mqttReconnectInterval = 5000;
+
+    // TODO: REMOVE THIS!!!
+    const int thermoSCK = CONTROLLINO_D6;
+    const int thermoCS = CONTROLLINO_D8;
+    const int thermoSO = CONTROLLINO_D10;
+    MAX6675 thermocouple(thermoSCK, thermoCS, thermoSO);
 };
 
 ArduinoMqtt* ArduinoMqtt::_instance;
@@ -192,4 +200,9 @@ TempSensors* ArduinoBoardIO::getTempSensors(int id)
         _tempSensors = new ArduinoTempSensors(physicalPin);
     }
     return _tempSensors;
+}
+
+double ArduinoBoardIO::getThermocoupleValue()
+{
+    return thermocouple.readCelsius();
 }

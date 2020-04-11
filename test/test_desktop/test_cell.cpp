@@ -874,3 +874,4 @@ int main(int argc, char **argv)
 // TODO: use good default PID values. kp=12.5, ki=0.08 faster, ki=0.04 stabler; kd=50
 // TODO: ThresholdControl (set bool cell to true / false when another cell's value crosses the threshold)
 //       To be used for the circulator pump and maybe for room temp
+// TODO: feed valve open counter (with EEPROM storage)

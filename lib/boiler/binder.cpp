@@ -47,6 +47,11 @@ void CellBinder::addTemperatureBinding(int pinId, TypedCell<double> *cell, uint8
     addBinding(new TemperatureBinding(sensors, cell, address, nAvg));
 }
 
+void CellBinder::addThermocoupleBinding(TypedCell<double> *cell, int nAvg)
+{
+    addBinding(new ThermocoupleBinding(_io, cell, nAvg));
+}
+
 void CellBinder::addBinding(CellBinding* binding)
 {
     // FIXME: support multiple TempSensors

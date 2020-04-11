@@ -53,6 +53,8 @@ public:
     virtual int analogRead(int id) = 0;
     virtual void analogWrite(int id, int value) = 0;
     virtual TempSensors* getTempSensors(int id) = 0;
+    // TODO: add getThermocouple(sck, cs, so)
+    virtual double getThermocoupleValue() = 0;
 };
 
 #endif
