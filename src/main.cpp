@@ -53,6 +53,15 @@ void setup()
     io.setPinMapping(Boiler::ValveYPin, CONTROLLINO_D0);
     io.setPinMapping(Boiler::PressurePin, CONTROLLINO_A1);
     io.setPinMapping(Boiler::FeedValvePin, CONTROLLINO_R10);
+    io.setPinMapping(Boiler::RadiatorValve1Pin, CONTROLLINO_D12);
+    io.setPinMapping(Boiler::RadiatorValve2Pin, CONTROLLINO_D13);
+    io.setPinMapping(Boiler::RadiatorValve3Pin, CONTROLLINO_D14);
+    io.setPinMapping(Boiler::RadiatorValve4Pin, CONTROLLINO_D15);
+    io.setPinMapping(Boiler::RadiatorValve5Pin, CONTROLLINO_D16);
+    io.setPinMapping(Boiler::RadiatorValve6Pin, CONTROLLINO_D17);
+    io.setPinMapping(Boiler::RadiatorValve7Pin, CONTROLLINO_D18);
+    io.setPinMapping(Boiler::BoilerCirculationRelay, CONTROLLINO_D19);
+    io.setPinMapping(Boiler::RadiatorCirculationRelay, CONTROLLINO_D20);
     boiler = new Boiler(&mqtt, &eeprom, &io);
     boiler->setup();
 }

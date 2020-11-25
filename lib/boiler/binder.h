@@ -108,11 +108,16 @@ public:
 
 class DigitalOutputBinding: public OutputPinBinding<bool, BoardIO::Output> {
 public:
-    DigitalOutputBinding(BoardIO *io, int pinId, TypedCell<bool>* cell):
-        OutputPinBinding<bool, BoardIO::Output>(io, pinId, cell) {}
+    DigitalOutputBinding(BoardIO *io, int pinId, TypedCell<bool>* cell, bool inverse = false):
+        OutputPinBinding<bool, BoardIO::Output>(io, pinId, cell),
+        _inverse(inverse) {}
     void setTargetValue(bool value) {
-        _io->digitalWrite(_pinId, value ? BoardIO::High : BoardIO::Low);
+        _io->digitalWrite(_pinId, _inverse ?
+                          (value ? BoardIO::Low : BoardIO::High) :
+                          (value ? BoardIO::High : BoardIO::Low));
     }
+private:
+    bool _inverse;
 };
 
 class AnalogInputBinding: public InputPinBinding<double, BoardIO::Input> {
@@ -188,7 +193,7 @@ public:
     CellBinder(BoardIO* io, unsigned long tempPollIntervalMs = 1000, unsigned long pollIntervalMs = 1000);
     ~CellBinder();
     void addDigitalInputBinding(int pinId, TypedCell<bool>* cell);
-    void addDigitalOutputBinding(int pinId, TypedCell<bool>* cell);
+    void addDigitalOutputBinding(int pinId, TypedCell<bool>* cell, bool inverse = false);
     void addAnalogInputBinding(int pinId, TypedCell<double>* cell, const ValueTransform& transform = ValueTransform(), int nAvg = 1);
     void addAnalogOutputBinding(int pinId, TypedCell<double>* cell, const ValueTransform& transform = ValueTransform());
     void addTemperatureBinding(int pinId, TypedCell<double>* cell, uint8_t* address, int nAvg = 1);

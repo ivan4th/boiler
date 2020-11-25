@@ -1,3 +1,5 @@
+#include <stdio.h>
+#include <string.h>
 #include "boiler.h"
 
 namespace {
@@ -46,7 +48,17 @@ Boiler::Boiler(Mqtt* mqtt, Eeprom* eeprom, BoardIO *io):
     // FIXME: "feed-valve-open"
     _feedValveOpen(_cellSet.addCell<bool>("feedValveOpen")->setWritable()),
     _enableFeedValveControl(_cellSet.addCell<bool>("enable-feed-valve-control")->setWritable()->setPersistent()),
-    _io(io) {}
+    _boilerCirculationRelay(_cellSet.addCell<bool>("boiler-circulation-relay", true)->setWritable()),
+    _radiatorCirculationRelay(_cellSet.addCell<bool>("radiator-circulation-relay", true)->setWritable()),
+    _io(io)
+{
+    for (int i = 0; i < numRadiatorValves; ++i) {
+        char name[32];
+        snprintf(name, 32, "radiatorValve%dOpen", i + 1);
+        // TODO: don't make valve cells persistent (will need to update the version)
+        _radiatorValveOpen[i] = _cellSet.addCell<bool>(strdup(name), true)->setWritable()->setPersistent();
+    }
+}
 
 void Boiler::setup()
 {
@@ -69,6 +81,14 @@ void Boiler::setup()
     _binder.addTemperatureBinding(TemperaturePin, _tempTankC, tempTankCAddr, 50);
     _binder.addThermocoupleBinding(_burnerTemperature, 30);
     _binder.addDigitalOutputBinding(FeedValvePin, _feedValveOpen);
+    _binder.addDigitalOutputBinding(RadiatorValve1Pin, _feedValveOpen);
+    for (int i = 0; i < numRadiatorValves; ++i)
+        _binder.addDigitalOutputBinding(RadiatorValve1Pin + i, _radiatorValveOpen[i], true);
+    _binder.addDigitalOutputBinding(BoilerCirculationRelay, _boilerCirculationRelay, true);
+    _binder.addDigitalOutputBinding(RadiatorCirculationRelay, _radiatorCirculationRelay, true);
+    // TODO: automatic boiler circulation controls
+    // TODO: automatic radiator circulation controls
+    // TODO: heater relay
     _binder.setup();
 }
 

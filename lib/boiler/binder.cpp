@@ -26,9 +26,9 @@ void CellBinder::addDigitalInputBinding(int pinId, TypedCell<bool>* cell)
     addBinding(new DigitalInputBinding(_io, pinId, cell));
 }
 
-void CellBinder::addDigitalOutputBinding(int pinId, TypedCell<bool>* cell)
+void CellBinder::addDigitalOutputBinding(int pinId, TypedCell<bool>* cell, bool inverse)
 {
-    addBinding(new DigitalOutputBinding(_io, pinId, cell));
+    addBinding(new DigitalOutputBinding(_io, pinId, cell, inverse));
 }
 
 void CellBinder::addAnalogInputBinding(int pinId, TypedCell<double>* cell, const ValueTransform& transform, int nAvg)
