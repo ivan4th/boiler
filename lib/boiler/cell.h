@@ -7,7 +7,7 @@
 
 // FIXME: use md5 hash of persistent cell names + types instead
 #ifndef CELL_STORAGE_VERSION
-#define CELL_STORAGE_VERSION 6
+#define CELL_STORAGE_VERSION 7
 #endif
 
 class CellStorage {

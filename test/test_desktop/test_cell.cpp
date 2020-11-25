@@ -822,6 +822,112 @@ void test_hysteresis_control_inverse()
         REC_END);
 }
 
+void test_circulation()
+{
+    TypedCell<double>* burnerTempCell = cellSet->addCell<double>("temp-burner");
+    TypedCell<bool>* boilerCirculationRelay = cellSet->addCell<bool>("boiler-circulation-relay", false)->setWritable();
+    TypedCell<bool>* enableCirculationControl = cellSet->addCell<bool>("enable-circulation-control", true)->setWritable();
+    TypedCell<double>* burnDetectionTempCell = cellSet->addCell<double>("burn-detection-temp")->setWritable();
+    TypedCell<double>* warmupRateCell = cellSet->addCell<double>("warmup-rate")->setWritable();
+    TypedCell<double>* cooldownTempCell = cellSet->addCell<double>("cooldown-temp")->setWritable();
+    TypedCell<double>* burnDetectionTimeoutCell = cellSet->addCell<double>("burn-detection-timeout")->setWritable();
+    TypedCell<double>* tempDerivCell = cellSet->addCell<double>("temp-deriv");
+    burnerTempCell->setValue(36);
+    burnDetectionTempCell->setValue(92);
+    warmupRateCell->setValue(0.5);
+    cooldownTempCell->setValue(85);
+    burnDetectionTimeoutCell->setValue(300);
+
+    Circulation circulation(burnerTempCell, boilerCirculationRelay, enableCirculationControl,
+                            burnDetectionTempCell, warmupRateCell, cooldownTempCell,
+                            burnDetectionTimeoutCell, tempDerivCell, 1000, 10, io);
+
+    mqtt->connect();
+    rec->verify(
+        "+/devices/testdev/controls/temp-burner: 36.0000",
+        "+/devices/testdev/controls/boiler-circulation-relay: 0",
+        "+/devices/testdev/controls/enable-circulation-control: 1",
+        "+/devices/testdev/controls/burn-detection-temp: 92.0000",
+        "+/devices/testdev/controls/warmup-rate: 0.5000",
+        "+/devices/testdev/controls/cooldown-temp: 85.0000",
+        "+/devices/testdev/controls/burn-detection-timeout: 300.0000",
+        "+/devices/testdev/controls/temp-deriv: 0.0000",
+        // "+/devices/testdev/controls/double-cell: 42.0000",
+        // "+/devices/testdev/controls/ro-cell: 1.0000",
+        // "+/devices/testdev/controls/bool-cell: 0",
+        REC_END);
+
+    for (int i = 0; i < 10; i++) {
+        TEST_ASSERT_FALSE(circulation.compute());
+        io->elapse(1000);
+        rec->verify("elapse: 1000", REC_END);
+    }
+
+    TEST_ASSERT_TRUE(circulation.compute());
+    rec->verify(
+        "+/devices/testdev/controls/temp-deriv: 0.0000",
+        REC_END);
+
+    io->elapse(1000);
+    burnerTempCell->setValue(36.6);
+    TEST_ASSERT_TRUE(circulation.compute());
+    rec->verify(
+        "elapse: 1000",
+        "+/devices/testdev/controls/temp-burner: 36.6000",
+        "+/devices/testdev/controls/boiler-circulation-relay: 1",
+        "+/devices/testdev/controls/temp-deriv: 0.6000",
+        REC_END);
+
+    for (int i = 0; i < 8; i++) {
+        io->elapse(1000);
+        TEST_ASSERT_TRUE(circulation.compute());
+        rec->verify(
+            "elapse: 1000",
+            "+/devices/testdev/controls/temp-deriv: 0.6000",
+            REC_END);
+    }
+
+    for (int i = 0; i < 9; i++) {
+        io->elapse(1000);
+        burnerTempCell->setValue(100);
+        TEST_ASSERT_TRUE(circulation.compute());
+        rec->verify(
+            "elapse: 1000",
+            "+/devices/testdev/controls/temp-burner: 100.0000",
+            "+/devices/testdev/controls/temp-deriv: 63.4000",
+            REC_END);
+    }
+
+    io->elapse(1000);
+    burnerTempCell->setValue(100);
+    TEST_ASSERT_TRUE(circulation.compute());
+    rec->verify(
+        "elapse: 1000",
+        "+/devices/testdev/controls/temp-burner: 100.0000",
+        "+/devices/testdev/controls/temp-deriv: 0.0000",
+        REC_END);
+
+    io->elapse(1000);
+    burnerTempCell->setValue(80);
+    TEST_ASSERT_TRUE(circulation.compute());
+    // relay not off b/c burn was detected recently
+    rec->verify(
+        "elapse: 1000",
+        "+/devices/testdev/controls/temp-burner: 80.0000",
+        "+/devices/testdev/controls/temp-deriv: -20.0000",
+        REC_END);
+
+    io->elapse(300000);
+    burnerTempCell->setValue(80);
+    TEST_ASSERT_TRUE(circulation.compute());
+    rec->verify(
+        "elapse: 300000",
+        "+/devices/testdev/controls/temp-burner: 80.0000",
+        "+/devices/testdev/controls/boiler-circulation-relay: 0",
+        "+/devices/testdev/controls/temp-deriv: -20.0000",
+        REC_END);
+}
+
 void test_boiler()
 {
     Boiler boiler(mqtt, eeprom, io);
@@ -845,6 +951,7 @@ int main(int argc, char **argv)
     RUN_TEST(test_pid_control);
     RUN_TEST(test_hysteresis_control);
     RUN_TEST(test_hysteresis_control_inverse);
+    RUN_TEST(test_circulation);
     RUN_TEST(test_boiler);
     UNITY_END();
 

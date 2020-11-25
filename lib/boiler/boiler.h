@@ -6,6 +6,7 @@
 #include "binder.h"
 #include "cell_pid.h"
 #include "cell_hysteresis.h"
+#include "circulation.h"
 
 class Boiler {
 public:
@@ -28,6 +29,7 @@ public:
     Boiler(Mqtt* mqtt, Eeprom* eeprom, BoardIO *io);
     void setup();
     void loop();
+    CellSet* cellSet();
 private:
     CellSet _cellSet;
     CellBinder _binder;
@@ -43,16 +45,24 @@ private:
         *_pressure,
         *_feedLowPressureThreshold,
         *_feedHighPressureThreshold,
-        *_burnerTemperature;
-    
+        *_burnerTemperature,
+        *_burnDetectionTempCell,
+        *_warmupRateCell,
+        *_cooldownTempCell,
+        *_burnDetectionTimeoutCell,
+        *_tempDerivCell;
+
     static const int numRadiatorValves = 7;
 
     TypedCell<bool> *_enableValveControl, *_feedValveOpen, *_enableFeedValveControl,
-        *_boilerCirculationRelay, *_radiatorCirculationRelay;
+        *_boilerCirculationRelay, *_radiatorCirculationRelay,
+        *_enableCirculationControl;
+
     TypedCell<bool> *_radiatorValveOpen[numRadiatorValves];
     BoardIO* _io;
     CellPID* _pid;
     CellHysteresisControl* _feedValveControl;
+    Circulation* _circulation;
 };
 
 #endif

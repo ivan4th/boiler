@@ -13,6 +13,8 @@ namespace {
     uint8_t tempTankBAddr[8] = { 0x28, 0xff, 0x6b, 0xa0, 0x24, 0x17, 0x03, 0xea };
     uint8_t tempTankCAddr[8] = { 0x28, 0xff, 0xaf, 0x3e, 0x81, 0x14, 0x02, 0xeb };
 
+    const int circulationSampleTime = 1000, circulationNSamples = 10;
+
     static constexpr double pressureCoefA = 0.014705882352941176,
         pressureCoefB = -1.3970588235294117,
         minX = 65,
@@ -44,12 +46,18 @@ Boiler::Boiler(Mqtt* mqtt, Eeprom* eeprom, BoardIO *io):
     _feedLowPressureThreshold(_cellSet.addCell<double>("feed-low-pressure-threshold")->setWritable()->setPersistent()),
     _feedHighPressureThreshold(_cellSet.addCell<double>("feed-high-pressure-threshold")->setWritable()->setPersistent()),
     _burnerTemperature(_cellSet.addCell<double>("temp-burner")),
+    _burnDetectionTempCell(_cellSet.addCell<double>("burn-detection-temp")->setWritable()->setPersistent()),
+    _warmupRateCell(_cellSet.addCell<double>("warmup-rate")->setWritable()->setPersistent()),
+    _cooldownTempCell(_cellSet.addCell<double>("cooldown-temp")->setWritable()->setPersistent()),
+    _burnDetectionTimeoutCell(_cellSet.addCell<double>("burn-detection-timeout")->setWritable()->setPersistent()),
+    _tempDerivCell(_cellSet.addCell<double>("temp-deriv")),
     _enableValveControl(_cellSet.addCell<bool>("enable-valve-control")->setWritable()->setPersistent()),
     // FIXME: "feed-valve-open"
     _feedValveOpen(_cellSet.addCell<bool>("feedValveOpen")->setWritable()),
     _enableFeedValveControl(_cellSet.addCell<bool>("enable-feed-valve-control")->setWritable()->setPersistent()),
     _boilerCirculationRelay(_cellSet.addCell<bool>("boiler-circulation-relay", true)->setWritable()),
     _radiatorCirculationRelay(_cellSet.addCell<bool>("radiator-circulation-relay", true)->setWritable()),
+    _enableCirculationControl(_cellSet.addCell<bool>("enable-circulation-control", true)->setWritable()->setPersistent()),
     _io(io)
 {
     for (int i = 0; i < numRadiatorValves; ++i) {
@@ -67,7 +75,12 @@ void Boiler::setup()
     // or there should be common setup() thing (event?)
     _pid = new CellPID(_tempTankToHouse, _valveY, _targetTemp, _kp, _ki, _kd, _enableValveControl, CellPID::Direct, 5000, 0, 100, _io);
     _feedValveControl = new CellHysteresisControl(_pressure, _feedValveOpen, _feedLowPressureThreshold, _feedHighPressureThreshold, _enableFeedValveControl);
-    
+    _circulation = new Circulation(_burnerTemperature, _boilerCirculationRelay, _enableCirculationControl,
+                                   _burnDetectionTempCell, _warmupRateCell, _cooldownTempCell,
+                                   _burnDetectionTimeoutCell, _tempDerivCell,
+                                   circulationSampleTime, circulationNSamples,
+                                   _io);
+
     _binder.addAnalogInputBinding(ValveXPin, _valveX, ValueTransform(xCoefA, xCoefB));
     _binder.addAnalogOutputBinding(ValveYPin, _valveY, ValueTransform(2.55, 0, 0, 255));
     _binder.addAnalogInputBinding(PressurePin, _pressure, ValueTransform(pressureCoefA, pressureCoefB));
@@ -97,6 +110,12 @@ void Boiler::loop()
     _binder.updateCells();
     _pid->compute();
     _feedValveControl->compute();
+    _circulation->compute();
+}
+
+CellSet* Boiler::cellSet()
+{
+    return &_cellSet;
 }
 
 // TODO: enable valve control by default
