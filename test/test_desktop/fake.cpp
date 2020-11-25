@@ -186,7 +186,7 @@ FakeTempSensors::TempValue* FakeTempSensors::findTempValue(uint8_t *address) {
     return 0;
 }
 
-FakeBoardIO::FakeBoardIO(Recorder* rec): _rec(rec), _pins(0), _millis(0) {}
+FakeBoardIO::FakeBoardIO(Recorder* rec): _rec(rec), _pins(0), _millis(0), _thermocoupleValue(0) {}
 
 FakeBoardIO::~FakeBoardIO()
 {
@@ -236,6 +236,11 @@ int FakeBoardIO::analogRead(int id)
     return p->analogValue;
 }
 
+double FakeBoardIO::getThermocoupleValue()
+{
+    return _thermocoupleValue;
+}
+
 void FakeBoardIO::analogWrite(int id, int value)
 {
     _rec->record("analogWrite: %d <- %d", id, value);
@@ -279,6 +284,11 @@ void FakeBoardIO::setTemperature(int id, uint8_t* address, double value)
     if (!p->tempSensors)
         TEST_FAIL_MESSAGE("setTemperature(): pin is not associated with TempSensors");
     p->tempSensors->set(address, value);
+}
+
+void FakeBoardIO::setThermocoupleValue(double v)
+{
+    _thermocoupleValue = v;
 }
 
 void FakeBoardIO::makeTempsAvailable()

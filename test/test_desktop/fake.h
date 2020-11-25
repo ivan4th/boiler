@@ -79,11 +79,13 @@ public:
     PinValue digitalRead(int id);
     void digitalWrite(int id, PinValue value);
     int analogRead(int id);
+    double getThermocoupleValue();
     void analogWrite(int id, int value);
     void setDigitalPinValue(int id, PinValue value);
     void setAnalogPinValue(int id, int value);
     TempSensors* getTempSensors(int id);
     void setTemperature(int id, uint8_t* address, double value);
+    void setThermocoupleValue(double v);
     void makeTempsAvailable();
     void elapse(unsigned long interval);
 private:
@@ -103,6 +105,7 @@ private:
     Recorder* _rec;
     Pin* _pins;
     unsigned long _millis;
+    double _thermocoupleValue;
 };
 
 #endif
