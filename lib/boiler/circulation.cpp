@@ -58,7 +58,10 @@ bool Circulation::checkIfNeedCirculation(unsigned long ms, double& tempDiff, boo
         _p = 0;
     // _cur is now the current entry and _p is an entry that was _numSamples ago
 
-    if (++_curNumSamples < _numSamples)
+    if (_curNumSamples < _numSamples)
+        _curNumSamples++;
+
+    if (_curNumSamples < _numSamples)
         return t >= _burnDetectionTempCell->value() || t > _cooldownTempCell->value();
 
     tempDiff = _temps[cur] - _temps[_p];
@@ -77,7 +80,7 @@ bool Circulation::checkIfNeedCirculation(unsigned long ms, double& tempDiff, boo
     }
 
     // there was burn detected recently enough?
-    if (burnDetectTS != 0 && (ms - burnDetectTS) / 1000 < _burnDetectionTempCell->value())
+    if (burnDetectTS != 0 && (ms - burnDetectTS) / 1000 < _burnDetectionTimeoutCell->value())
         return true;
 
     // the boiler has cooled down?
