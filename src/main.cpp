@@ -1,5 +1,6 @@
 #include <Controllino.h>
 #include <ArduinoLog.h>
+#include <avr/wdt.h>
 
 #include "arduino_platform.h"
 #include "boiler.h"
@@ -64,10 +65,15 @@ void setup()
     io.setPinMapping(Boiler::RadiatorCirculationRelay, CONTROLLINO_D20);
     boiler = new Boiler(&mqtt, &eeprom, &io);
     boiler->setup();
+
+    /* watchdog: 8s */
+    wdt_enable(WDTO_8S);
 }
 
 void loop()
 {
+    wdt_reset();
+
     static unsigned long lastFreeRamPrint = 0;
     unsigned long ms = millis();
     if ((ms > 0 && lastFreeRamPrint == 0) || ms - lastFreeRamPrint >= 10000) {
