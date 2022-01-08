@@ -97,6 +97,20 @@ ArduinoTempSensors::ArduinoTempSensors(int pin):
     _oneWire(pin), _sensors(&_oneWire)
 {
     _sensors.setWaitForConversion(false);
+    _sensors.begin();
+    int n = _sensors.getDeviceCount();
+    Log.trace(F("Got %d temp sensors\n"), n);
+    for (int i = 0; i < n; i++) {
+        DeviceAddress address;
+        if (_sensors.getAddress(address, i)) {
+            char addrStr[64];
+            snprintf(addrStr, 64, "%02x%02x%02x%02x%02x%02x%02x%02x",
+                     address[0], address[1], address[2], address[3],
+                     address[4], address[5], address[6], address[7]);
+            Log.trace(F("temp sensor %d: %s\n"), i, addrStr);
+        } else
+            Log.trace(F("temp sensor %d: error getting address\n"), i);
+    }
 }
 
 void ArduinoTempSensors::request()
